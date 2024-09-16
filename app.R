@@ -102,27 +102,6 @@ ui <- fluidPage(
                       plotOutput("plot_cs_mean", width=fig.width, height=fig.height),
              ),
              
-             tabPanel("Matching",
-                      div(p("The one problem we still have is that our new book and no-new book groups are very different sizes. To correct this, we can just match across the two groups to get a balanced dataset.")),
-                      fluidRow(div(style = 'display: inline-block; vertical-align: middle;', textInput("match_formula", "Matching formula", "")),
-                               div(style = 'display: inline-block; vertical-align: middle; margin-top:10px;', actionButton("matchBtn", "Match"))),
-                      verbatimTextOutput("match_summary"),
-                      plotOutput("match_summary_plot", width=fig.width, height=fig.height),
-                      div(HTML("<br/>")),
-                      actionButton("compareMatches", "Compare Matches"),
-                      div(HTML("<br/>")),
-                      div(HTML("T-Test results on our matched data (e.g. are the new books classrooms different from those without new books?)")),
-                      verbatimTextOutput("match_compare_t.test"),
-                      div(HTML("<br/>")),
-                      div(HTML("Comparison results on our matched data (e.g. what does Pre-K <em>and</em> new books and vice versa do?)")),
-                      div(HTML("<br/>")),
-                      htmlOutput("match_compare_summary"),
-                      div(HTML("<br/>")),
-                      plotOutput("matchedHist", width=fig.width, height=fig.height),
-                      div(HTML("<br/>")),
-                      plotOutput("matchedPlot", width=fig.width, height=fig.width)
-             ),
-             
              tabPanel("Discovery",
                       div(HTML("What does a Causal Discovery Algorithm say about it? We can use <a href='https://rdrr.io/cran/pcalg/man/LINGAM.html'>\"cool\" algorithms</a> to do our Causal Inference for us (though we should always double-check them).")),
                       img(src='LiNGAM_DAG.png', width=(fig.width * 1.2), height=(fig.height * 1.2)),
@@ -134,6 +113,7 @@ ui <- fluidPage(
 server <- function(input, output) {
   
   reading_scores <- readRDS("scores")
+  reading_scores$scores = round(reading_scores$scores, digits = 3)
   
   output$mytable <- DT::renderDataTable(reading_scores)
   
@@ -325,106 +305,6 @@ server <- function(input, output) {
       parse_lm(input$regression, f)
     }
   })
-  
-  observeEvent(input$matchBtn, {
-    
-    print(input$match_formula)
-    tryCatch({
-      matched <- matchit(as.formula(input$match_formula), method="cem", data = reading_scores)
-      matched_results <- match.data(matched)
-      output$match_summary <- renderPrint({summary(matched)})
-      output$match_summary_plot <- renderPlot({love.plot(matched, stats="mean.diffs", treat="new_books", drop.distance = TRUE)})
-    }, warning = function(w) {
-      return(NULL)
-    }, error = function(e) {
-      return(NULL)
-    })
-    
-  })
-  
-  observeEvent(input$compareMatches, {
-    
-    tryCatch({
-      matched <- matchit(as.formula(input$match_formula), method="cem", data = reading_scores)
-      matched_results <- match.data(matched)
-    }, warning = function(w) {
-      print(paste0(" warning: can't run matches ", w))
-      #return(NULL)
-    }, error = function(e) {
-      print(paste0(" error: can't run matches ", e))
-      return(NULL)
-    })
-    
-    tryCatch({
-      fit <- lm(scores ~ (new_books * (class_size + prek + teacher_exp)), data = matched_results)
-    }, warning = function(w) {
-      print(paste0(" warning: use matches ", w))
-      return(NULL)
-    }, error = function(e) {
-      print(paste0(" error: use matches ", e))
-      return(NULL)
-    })
-      a <- avg_comparisons(fit,
-                           variables = c("prek"),
-                           vcov = ~subclass,
-                           wts = "weights",
-                           by = "new_books")
-      
-      a2 <- avg_comparisons(fit,
-                           variables = c("new_books"),
-                           vcov = ~subclass,
-                           wts = "weights",
-                           by = "prek")
-      
-      avg_comps <- paste0("Pre-K effect <strong>with</strong> New Books: ", a[a$new_books == 1,]$estimate, " <br/>Pre-K effect <strong>without</strong> New Books: ", a[a$new_books == 0,]$estimate, "<br/>")
-      avg_comps <- paste0(avg_comps, "New Books effect <strong>with</strong> Pre-K: ", a2[a2$prek == 1,]$estimate, " <br/>New Books effect <strong>without</strong> Pre-K: ", a2[a2$prek == 0,]$estimate)
-      
-      output$match_compare_summary <- renderText({avg_comps})
-      
-      output$match_compare_t.test <- renderPrint({t.test(scores ~ new_books, data = matched_results, alternative='t')})
-      
-      output$matchedHist <- renderPlot({ggplot(matched_results, aes(x = class_size)) +
-          geom_histogram(aes(color = as.factor(new_books), fill = as.factor(new_books)), 
-                         position = "identity", bins = 20, alpha = 0.2) +
-          scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-          scale_fill_manual(values = c("#00AFBB", "#E7B800")) + ggtitle("Matched data class size comparisons")
-        })
-      
-      class_means <- as.data.frame(group_by(matched_results, subclass) %>%
-                                     reframe(xc=mean(class_size), 
-                                             yc=mean(teacher_exp),
-                                             density=(max(teacher_exp) - min(teacher_exp)) + (max(class_size) - min(class_size)) + 1,
-                                             prek=mean(prek),
-                                             n=n()))
-      output$matchedPlot <- renderPlot({
-        
-        ggplot() +
-          ggnewscale::new_scale_color() +
-          geom_point(data=class_means[class_means$prek == 1,], aes(x=xc, y=yc, color=n, size=density)) +
-          scale_color_gradient(low = alpha("#00AFBB", 0.2), high = alpha("#00AFBB", 0.8), name = "Pre-K \nClassrooms", breaks=c(5, 15, 25)) +
-          ggnewscale::new_scale_color() +
-          geom_point(data=class_means[class_means$prek == 0,], aes(x=xc, y=yc, color=n, size=density)) +
-          scale_color_gradient(low = alpha("#E7B800", 0.2), high = alpha("#E7B800", 0.8), name = "No Pre-K \nClassrooms", breaks=c(5, 15, 25)) +
-          ggtitle("Matched groups") + xlab("Class Size") + ylab("Teacher Experience") +
-          labs( size = "Spread", alpha = "Classrooms") +
-          theme_light(base_size = 10)
-        
-      })
-  })
-  
-  # lingam_friendly <- reading_scores
-  # lingam_friendly$new_books <- as.numeric(lingam_friendly$new_books)
-  # lingam_friendly$prek <- as.numeric(lingam_friendly$prek)
-  # res <- pcalg::lingam(lingam_friendly)
-  # dag <- pcalg2dagitty(as(res, "amat"), colnames(reading_scores), type="dag")
-  # ggdag(dag)
-  # 
-  # output$lingamPlot <- renderPlot(ggplot(data=dag, aes(x = x, y = y, xend = xend, yend = yend)) +
-  #                                    geom_dag_edges() +
-  #                                    geom_dag_node(col = "#67cdd3") +
-  #                                    geom_dag_text(col = "black") +
-  #                                    theme_dag())
-  
 }
 
 # Run the application 
