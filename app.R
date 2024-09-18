@@ -57,7 +57,7 @@ ui <- fluidPage(
              ),
              
              tabPanel("View data",
-                      DT::dataTableOutput("mytable")
+                      DT::dataTableOutput("all_data_view")
              ),
              
              tabPanel("Explore",
@@ -73,10 +73,10 @@ ui <- fluidPage(
                       
                       actionButton("calcMeanBtn", "Calculate Mean"),
                       div(HTML("<br/>")),
-                      verbatimTextOutput("means"),
+                      textOutput("means"),
                       div(HTML("<br/>")),
                       plotOutput("plot_mean", width=fig.width, height=fig.height),
-                      verbatimTextOutput("ttest"),
+                      htmlOutput("ttest"),
                       div(HTML("<br/>")),
                       plotOutput("plot_ttest", width=fig.width, height=fig.height),
              ),
@@ -84,8 +84,9 @@ ui <- fluidPage(
              tabPanel("Regression",
                       div(p("Enter a formula to run a regression on our data. To start, do 'scores ~ new_books'")),
                       textInput("regression", "Regression formula", ""),
-                      verbatimTextOutput("summary"),
-                      
+                      div(HTML("<br/>")),
+                      DT::dataTableOutput("lm_summary"),
+                      div(HTML("<br/>")),
                       plotOutput("plot1", width=fig.width, height=fig.height),
                       plotOutput("plot2", width=fig.width, height=fig.height),
                       plotOutput("plot3", width=fig.width, height=fig.height),
@@ -97,9 +98,10 @@ ui <- fluidPage(
                       div(HTML("<br/>")),
                       actionButton("calcCSMean", "Calculate Mean"),
                       div(HTML("<br/>")),
-                      verbatimTextOutput("cs_means"),
+                      htmlOutput("cs_means"),
                       div(HTML("<br/>")),
                       plotOutput("plot_cs_mean", width=fig.width, height=fig.height),
+                      plotOutput("plot_cs_ttest", width=fig.width, height=fig.height)
              ),
              
              tabPanel("Discovery",
@@ -110,46 +112,79 @@ ui <- fluidPage(
   )
 )
 
+clean_ttest_output <- function(t){
+
+  output <- paste0(
+    "<strong>", names(t$estimate)[1], " </strong>: ", t$estimate[[1]], " <br/> ",
+    "<strong>", names(t$estimate)[2], " </strong>: ", t$estimate[[2]], " <br/> ",
+    "<strong>P-value</strong> (e.g. likelihood these groups are the same): ", round(t$p.value, digits = 5), " <br/> "
+  )
+  return(output)
+}
+
+clean_lm_output <- function(coef_test_output){
+  
+  cdf <- as.data.frame(coef_test_output[,])
+  output <- data.frame(
+                       "Parameter Name" = row.names(cdf)[2:nrow(cdf)], 
+                       "Estimate" = round(cdf[2:nrow(cdf), 1], digits = 5), 
+                       "Standard Error" = round(cdf[2:nrow(cdf), 2], digits = 5), 
+                       "P-value" = round(cdf[2:nrow(cdf), 4], digits = 5)
+                       )
+  return(output)
+}
+
 server <- function(input, output) {
   
   reading_scores <- readRDS("scores")
   reading_scores$scores = round(reading_scores$scores, digits = 3)
   
-  output$mytable <- DT::renderDataTable(reading_scores)
+  output$all_data_view <- DT::renderDataTable(reading_scores)
   
   ################################################################################
   # plot EDA
   output$scores_eda <- renderPlot({ggplot(reading_scores, aes(x = scores)) +
-      geom_histogram(fill="#00AFBB") +
+      geom_histogram(fill="#00AFBB", bins = 20) +
+      xlab("Average Score for Classroom") +
       ggtitle("Histogram of all scores")})
   
-  output$scores_books_eda <- renderPlot({ggplot(reading_scores, aes(x = scores)) +
-      geom_histogram(aes(color = as.factor(new_books), fill = as.factor(new_books)), 
-                     position = "identity", bins = 20, alpha = 0.2) +
-      scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-      scale_fill_manual(values = c("#00AFBB", "#E7B800"))  +
-      ggtitle("Histogram of scores by books")})
+  output$scores_books_eda <- renderPlot({
+      ggplot(reading_scores, aes(x = scores, color=as.factor(new_books), fill = as.factor(new_books))) +
+      geom_histogram(position = "identity", bins = 20, alpha = 0.2) +
+      scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes')) +
+      scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+      labs(fill = "New books?") +
+      theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+      xlab("Average Score for Classroom") +
+      ggtitle("Histogram of scores by books")
+    })
   
-  output$scores_prek_eda <- renderPlot({ggplot(reading_scores, aes(x = scores)) +
-      geom_histogram(aes(color = as.factor(prek), fill = as.factor(prek)), 
-                     position = "identity", bins = 20, alpha = 0.2) +
-      scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-      scale_fill_manual(values = c("#00AFBB", "#E7B800"))  +
-      ggtitle("Histogram of scores by Pre-K")})
+  output$scores_prek_eda <- renderPlot({
+      ggplot(reading_scores, aes(x = scores)) +
+      geom_histogram(aes(fill = as.factor(prek), color=factor(prek)), position = "identity", bins = 20, alpha = 0.2) +
+      scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'))  +
+      scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+      labs(fill = "School has PreK?") +
+      xlab("Average Score for Classroom") +
+      theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+      ggtitle("Histogram of scores by Pre-K")
+  })
   
   output$scores_class_size <- renderPlot({
-    ggplot(reading_scores, aes(y = scores, x=class_size)) + geom_point()
+    ggplot(reading_scores, aes(y = scores, x=class_size)) + geom_point() +
+      ylab("Average Score for Classroom") + xlab("Students in Classroom")
   })
   
   output$scores_teacher_exp <- renderPlot({
-    ggplot(reading_scores, aes(y = scores, x=teacher_exp)) + geom_point()
+    ggplot(reading_scores, aes(y = scores, x=teacher_exp)) + geom_point() +
+      ylab("Average Score for Classroom") + xlab("Years of Teacher Experience")
   })
   
   ################################################################################
   # fitting regressions
   ################################################################################
   
-  parse_lm <- function(formula, fit){
+  graph_lm <- function(formula, fit){
     
     if(formula == "" || grepl("~", formula) == FALSE) {
       return()
@@ -170,10 +205,12 @@ server <- function(input, output) {
         {
           output[[whichplot]] <- renderPlot({
             ggplot(reading_scores, aes(x = .data[[dependent]])) +
+              labs(fill = "School has PreK?") +
+              theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
               geom_histogram(aes(color = as.factor(prek), fill = as.factor(prek)), 
                              position = "identity", bins = 20, alpha = 0.2) +
-              scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-              scale_fill_manual(values = c("#00AFBB", "#E7B800"))
+              scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+              scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'))
           })
         }
         if(independent[i] == "new_books")
@@ -182,8 +219,10 @@ server <- function(input, output) {
             ggplot(reading_scores, aes(x = .data[[dependent]])) +
               geom_histogram(aes(color = as.factor(new_books), fill = as.factor(new_books)), 
                              position = "identity", bins = 20, alpha = 0.2) +
-              scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-              scale_fill_manual(values = c("#00AFBB", "#E7B800"))
+              labs(fill = "New books?") +
+              theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+              scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+              scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'))
           })
         }
         if(independent[i] == "class_size")
@@ -195,8 +234,10 @@ server <- function(input, output) {
               ggplot(reading_scores, aes(x = class_size)) +
                 geom_histogram(aes(color = as.factor(new_books), fill = as.factor(new_books)), 
                                position = "identity", bins = 20, alpha = 0.2) +
-                scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-                scale_fill_manual(values = c("#00AFBB", "#E7B800"))
+                labs(fill = "New books?") +
+                theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+                scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+                scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'))
             })
           }
           else if(grepl( "new_books", formula) == TRUE)
@@ -204,10 +245,10 @@ server <- function(input, output) {
             output[[whichplot]] <- renderPlot({
               ggplot(reading_scores, aes(y = scores, x=class_size)) +
                 geom_point(aes(color = as.factor(new_books)), alpha=0.4) +
-                scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-                scale_fill_manual(values = c("#00AFBB", "#E7B800")) +
-                geom_smooth(method = 'lm', se = FALSE, formula = y ~ x, colour = "#E7B800", data=reading_scores[reading_scores$new_books == 1,]) +
-                geom_smooth(method = 'lm', se = FALSE, formula = y ~ x, colour = "#00AFBB", data=reading_scores[reading_scores$new_books == 0,])
+                labs(fill = "New books?", color="New books?") +
+                theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+                scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes')) +
+                scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'))
               
             })
           }
@@ -215,7 +256,8 @@ server <- function(input, output) {
           {
             output[[whichplot]] <- renderPlot({
               ggplot(reading_scores, aes(y = scores, x=class_size)) +
-                geom_point(, alpha=0.4) +
+                geom_point(alpha=0.4) +
+                theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
                 geom_smooth(method = 'lm', se = FALSE, formula = y ~ x, colour = "#E7B800", data=reading_scores)
             })
               
@@ -225,15 +267,18 @@ server <- function(input, output) {
         {
           output[[whichplot]] <- renderPlot({
             ggplot(reading_scores, aes(x = .data[[dependent]], y=teacher_exp)) +
-              geom_point(aes(color = as.factor(new_books))) +
-              scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-              scale_fill_manual(values = c("#00AFBB", "#E7B800"))
+              geom_boxplot(aes(fill = as.factor(new_books), colour = as.factor(new_books))) +
+              labs(fill = "New books?") +
+              theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+              ggtitle("Boxplot of New Books by Teacher Experience") + 
+              scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes')) +
+              scale_fill_manual(values = c("#00AFBB33", "#E7B80033"), guide = "none")
           })
         }
     }
   }
   
-  fit.regression <- reactive({
+  fit_regression <- reactive({
  
     tryCatch({
       
@@ -242,14 +287,11 @@ server <- function(input, output) {
       
       fit <- NULL
       
-      print(dependent)
-      
       if(dependent == "class_size" || dependent == "scores") {
         fit <- lm(input$regression, data = reading_scores)
       }
       
       if(dependent == "new_books" || dependent == "prek") {
-        print("running glm")
         fit <- glm(input$regression, family=binomial(link = "probit"), data = reading_scores)
       }
       
@@ -272,37 +314,62 @@ server <- function(input, output) {
     output$means <- renderPrint(paste0(" The difference between classrooms with new books vs those without is ", m))
     
     t <- t.test(scores ~ new_books, data=reading_scores)
-    output$ttest <- renderPrint(t)
+    output$ttest <- renderUI(HTML(clean_ttest_output(t)))
 
-    output$plot_mean <- renderPlot({ggplot(reading_scores, aes(as.factor(new_books), colour=as.factor(new_books), scores)) + geom_boxplot()})
-    output$plot_ttest <- renderPlot({ggplot(reading_scores, aes(scores, colour=as.factor(new_books), group=as.factor(new_books))) +
-        geom_density(adjust=2)
+    output$plot_mean <- renderPlot({
+      ggplot() + 
+        geom_boxplot(reading_scores, mapping = aes(as.factor(new_books), fill=as.factor(new_books), colour=as.factor(new_books), scores)) +
+        ggtitle("Boxplot of Scores by New Books") + 
+        scale_color_manual(values = c("#00AFBB", "#E7B800"), guide = "none") +
+        scale_fill_manual(values = c("#00AFBB33", "#E7B80033"), labels=c('No', 'Yes')) +
+        labs(fill = "New books?")
+    })
+    
+    output$plot_ttest <- renderPlot({
+      ggplot(reading_scores, aes(scores, colour=as.factor(new_books), fill=as.factor(new_books), group=as.factor(new_books))) +
+        geom_density(adjust=2) + 
+        scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+        scale_fill_manual(values = c("#00AFBB33", "#E7B80033")) +
+        labs(fill = "New books?")
     })
   })
   
   observeEvent(input$calcCSMean, {
     t <- t.test(reading_scores[reading_scores$new_books == 1,]$class_size, reading_scores[reading_scores$new_books == 0,]$class_size)
-    output$cs_means = renderPrint(t)
+    output$cs_means = renderUI(HTML(clean_ttest_output(t)))
     
     output$plot_cs_mean <- renderPlot({
       ggplot(reading_scores, aes(x = class_size)) +
-        geom_histogram(aes(color = as.factor(new_books), fill = as.factor(new_books)), 
-                       position = "identity", bins = 20, alpha = 0.2) +
-        scale_color_manual(values = c("#00AFBB", "#E7B800")) +
-        scale_fill_manual(values = c("#00AFBB", "#E7B800"))
+        geom_histogram(aes(fill = as.factor(new_books), color=factor(new_books)), position = "identity", bins = 20, alpha = 0.2) +
+        scale_fill_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'))  +
+        scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
+        labs(fill = "New Books?") +
+        xlab("Average Score for Classroom") +
+        theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+        ggtitle("Histogram of class_size by New Books")
     })
+    
+    output$plot_cs_ttest <- renderPlot({ggplot(reading_scores, aes(as.factor(new_books), fill=as.factor(new_books), colour=as.factor(new_books), class_size)) + geom_boxplot() +
+      labs(fill = "New books?") +
+        theme(legend.title = element_text(size = 12), legend.text=element_text(size=12)) + 
+        ggtitle("Boxplot of Teacher Experience by New Books") + 
+        scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes')) +
+        scale_fill_manual(values = c("#00AFBB33", "#E7B80033"), guide = "none")
+      })
   })
   
   observeEvent(input$regression, {
-    f <- fit.regression()
+    f <- fit_regression()
+    
     if(!is.null(f)) {
       print("rendering summary")
-      output$summary <- renderPrint({
-          summary(f)
-      })
+      
+      coef_output <- coeftest(f, vcov = vcovHC)
+      
+      output$lm_summary <- DT::renderDataTable(clean_lm_output(coef_output), options = list(dom = 't'))
       
       # break apart lm statement and graph each component hist for prek/new_book and scatter for class_size/teach_exp
-      parse_lm(input$regression, f)
+      graph_lm(input$regression, f)
     }
   })
 }
