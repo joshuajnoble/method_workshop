@@ -172,12 +172,14 @@ server <- function(input, output) {
   
   output$scores_class_size <- renderPlot({
     ggplot(reading_scores, aes(y = scores, x=class_size)) + geom_point() +
-      ylab("Average Score for Classroom") + xlab("Students in Classroom")
+      ylab("Average Score for Classroom") + xlab("Students in Classroom") +
+      ggtitle("Scores by Kids in Classroom")
   })
   
   output$scores_teacher_exp <- renderPlot({
     ggplot(reading_scores, aes(y = scores, x=teacher_exp)) + geom_point() +
-      ylab("Average Score for Classroom") + xlab("Years of Teacher Experience")
+      ylab("Average Score for Classroom") + xlab("Years of Teacher Experience") +
+      ggtitle("Scores by Teacher Experience")
   })
   
   ################################################################################
@@ -328,6 +330,7 @@ server <- function(input, output) {
     output$plot_ttest <- renderPlot({
       ggplot(reading_scores, aes(scores, colour=as.factor(new_books), fill=as.factor(new_books), group=as.factor(new_books))) +
         geom_density(adjust=2) + 
+        ggtitle("Density Plot of Scores by New Books") + 
         scale_color_manual(values = c("#00AFBB", "#E7B800"), labels=c('No', 'Yes'), guide = "none") +
         scale_fill_manual(values = c("#00AFBB33", "#E7B80033")) +
         labs(fill = "New books?")
